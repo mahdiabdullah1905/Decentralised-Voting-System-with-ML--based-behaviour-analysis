@@ -1,0 +1,172 @@
+
+import React, { useEffect, useState } from 'react';
+import { useVote } from '../contexts/VoteContext';
+import { Check, ShieldAlert, Loader } from 'lucide-react';
+
+const Vote: React.FC = () => {
+    const { candidates, castVote, electionStarted, electionEnded, hasVoted, account } = useVote();
+    const [votingId, setVotingId] = useState<number | null>(null);
+    const [pageLoadTime] = useState(Date.now());
+    const [error, setError] = useState<string | null>(null);
+    const [analysisResult, setAnalysisResult] = useState<{ score: number; cluster: number; is_anomaly: boolean } | null>(null);
+
+    const handleVote = async (candidateId: number) => {
+        if (votingId !== null) return;
+        setError(null);
+        setAnalysisResult(null);
+        setVotingId(candidateId);
+
+        const now = Date.now();
+        const voteTime = (now - pageLoadTime) / 1000; // seconds taken to vote
+
+        try {
+            console.log("Analyzing behavior...");
+            const response = await fetch('http://localhost:5000/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    wallet: account,
+                    voteTime: voteTime,
+                    timestamp: now,
+                    attempts: 1
+                })
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Server error: ${text}`);
+            }
+
+            const data = await response.json();
+            setAnalysisResult({
+                score: data.anomaly_score,
+                cluster: data.cluster,
+                is_anomaly: data.is_anomaly
+            });
+
+            if (data.is_anomaly) {
+                setError("Security Alert: Unusual behavior detected. Your vote has been flagged and blocked.");
+                setVotingId(null);
+                return;
+            }
+
+            // Proceed to vote on blockchain
+            await castVote(candidateId);
+
+        } catch (err) {
+            console.error("ML Backend Error:", err);
+            // Fallback: In development or if ML is down, you might want to allow voting or block it. 
+            // For this demo, we'll block it to show the dependency, BUT we can assume safe if backend is just not running?
+            // User requested "ML based behavior analysis", so we should show error if backend is unreachable.
+            setError("Error connecting to security server. Please try again.");
+        } finally {
+            setVotingId(null);
+        }
+    };
+
+    if (!account) {
+        return (
+            <div className="flex justify-center mt-20">
+                <div className="text-center">
+                    <h2 className="text-3xl font-bold mb-4">Connect Wallet</h2>
+                    <p className="text-gray-400 mb-6">Please connect your wallet to participate in the election.</p>
+                    {/* The Navbar has the connect button, so we just guide them */}
+                    <div className="animate-pulse text-blue-400">
+                        &uarr; Use the button in the top right
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (!electionStarted) {
+        return (
+            <div className="flex justify-center mt-20">
+                <div className="text-center">
+                    <h2 className="text-3xl font-bold mb-4">Election Not Started</h2>
+                    <p className="text-gray-400">Please wait for the administrator to start the election.</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (electionEnded) {
+        return (
+            <div className="max-w-4xl mx-auto">
+                <h1 className="text-3xl font-bold mb-8 text-center">Election Results</h1>
+                <div className="grid gap-6">
+                    {candidates.sort((a, b) => b.voteCount - a.voteCount).map((c, index) => (
+                        <div key={c.id} className="card flex justify-between items-center relative overflow-hidden">
+                            {index === 0 && <div className="absolute top-0 right-0 bg-yellow-500 text-black text-xs font-bold px-2 py-1 rounded-bl-lg">WINNER</div>}
+                            <div>
+                                <h3 className="text-2xl font-bold">{c.name}</h3>
+                                <p className="text-gray-400">Candidate #{c.id}</p>
+                            </div>
+                            <div className="text-4xl font-bold text-primary">{c.voteCount}</div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="max-w-6xl mx-auto">
+            <h1 className="text-3xl font-bold mb-2">Cast Your Vote</h1>
+            <p className="text-gray-400 mb-8">Select your preferred candidate below. Your vote is secure and immutable.</p>
+
+            {error && (
+                <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-4 rounded-lg mb-8 flex items-center gap-4 animate-shake">
+                    <ShieldAlert size={24} />
+                    {error}
+                </div>
+            )}
+
+            {hasVoted ? (
+                <div className="bg-green-500/10 border border-green-500/50 text-green-500 p-8 rounded-xl text-center">
+                    <Check size={48} className="mx-auto mb-4" />
+                    <h2 className="text-2xl font-bold mb-2">You have voted!</h2>
+                    <p className="mb-4">Thank you for participating in the election.</p>
+
+                    {analysisResult && (
+                        <div className="mt-6 bg-slate-900/50 p-4 rounded-lg inline-block text-left border border-slate-700">
+                            <h3 className="text-gray-400 text-sm uppercase tracking-wider mb-2 font-bold">Behavior Analysis Report</h3>
+                            <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                                <span className="text-gray-400">Status:</span>
+                                <span className="text-green-400 font-mono font-bold">VERIFIED NORMAL</span>
+
+                                <span className="text-gray-400">Anomaly Score:</span>
+                                <span className="text-white font-mono">{analysisResult.score.toFixed(4)}</span>
+
+                                <span className="text-gray-400">Behavior Cluster:</span>
+                                <span className="text-white font-mono">Group {analysisResult.cluster}</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {candidates.map((c) => (
+                        <div key={c.id} className="card hover:shadow-2xl hover:shadow-primary/10 group">
+                            <div className="h-32 bg-gradient-to-br from-slate-700 to-slate-800 rounded-lg mb-4 flex items-center justify-center text-4xl font-bold text-slate-600">
+                                {c.name.charAt(0)}
+                            </div>
+                            <h3 className="text-xl font-bold mb-2">{c.name}</h3>
+                            <p className="text-sm text-gray-500 mb-6">Candidate ID: {c.id}</p>
+
+                            <button
+                                onClick={() => handleVote(c.id)}
+                                disabled={votingId !== null}
+                                className="w-full btn-primary py-3 rounded-lg font-bold flex justify-center items-center gap-2 group-hover:bg-indigo-500 transition-colors"
+                            >
+                                {votingId === c.id ? <Loader className="animate-spin" /> : "Vote Now"}
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default Vote;
