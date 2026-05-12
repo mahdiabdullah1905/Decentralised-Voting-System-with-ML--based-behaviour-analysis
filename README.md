@@ -1,4 +1,4 @@
-Here is a formatted version of your project's overview that is perfect for a GitHub README. You can copy the code block below and paste it directly into your `README.md` file:
+
 
 ```markdown
 # Decentralized Blockchain-Based Voting System
