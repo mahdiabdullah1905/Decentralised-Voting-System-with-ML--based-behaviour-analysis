@@ -368,7 +368,7 @@ const Admin: React.FC = () => {
 
                 {/* Debug Data Table */}
                 <div className="card mb-8">
-                    <h2 className="text-xl font-bold mb-4">Raw Data Debug (Check if empty)</h2>
+                    <h2 className="text-xl font-bold mb-4">Raw Data Debug </h2>
                     <div className="max-h-60 overflow-y-auto bg-slate-900 p-4 rounded text-xs font-mono">
                         {history.length === 0 ? (
                             <p className="text-gray-500">No data in history state.</p>
