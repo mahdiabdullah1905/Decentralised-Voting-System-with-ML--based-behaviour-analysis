@@ -6,12 +6,24 @@ import { Check, ShieldAlert, Loader } from 'lucide-react';
 const Vote: React.FC = () => {
     const { candidates, castVote, electionStarted, electionEnded, hasVoted, account } = useVote();
     const [votingId, setVotingId] = useState<number | null>(null);
+    const [showSurveyFor, setShowSurveyFor] = useState<number | null>(null);
+    const [region, setRegion] = useState('');
+    const [reason, setReason] = useState('');
     const [pageLoadTime] = useState(Date.now());
     const [error, setError] = useState<string | null>(null);
     const [analysisResult, setAnalysisResult] = useState<{ score: number; cluster: number; is_anomaly: boolean } | null>(null);
 
-    const handleVote = async (candidateId: number) => {
-        if (votingId !== null) return;
+    const openSurvey = (candidateId: number) => {
+        setShowSurveyFor(candidateId);
+        setRegion('');
+        setReason('');
+    };
+
+    const executeVote = async (has_survey: boolean) => {
+        if (showSurveyFor === null) return;
+        const candidateId = showSurveyFor;
+        setShowSurveyFor(null);
+        
         setError(null);
         setAnalysisResult(null);
         setVotingId(candidateId);
@@ -26,9 +38,13 @@ const Vote: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     wallet: account,
+                    candidateId: candidateId,
                     voteTime: voteTime,
                     timestamp: now,
-                    attempts: 1
+                    attempts: 1,
+                    has_survey: has_survey ? 1.0 : 0.0,
+                    region: has_survey ? region : null,
+                    reason: has_survey ? reason : null
                 })
             });
 
@@ -155,7 +171,7 @@ const Vote: React.FC = () => {
                             <p className="text-sm text-gray-500 mb-6">Candidate ID: {c.id}</p>
 
                             <button
-                                onClick={() => handleVote(c.id)}
+                                onClick={() => openSurvey(c.id)}
                                 disabled={votingId !== null}
                                 className="w-full btn-primary py-3 rounded-lg font-bold flex justify-center items-center gap-2 group-hover:bg-indigo-500 transition-colors"
                             >
@@ -163,6 +179,70 @@ const Vote: React.FC = () => {
                             </button>
                         </div>
                     ))}
+                </div>
+            )}
+
+            {/* Optional Survey Modal */}
+            {showSurveyFor !== null && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+                    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200">
+                        <h2 className="text-2xl font-bold mb-2">Optional Survey</h2>
+                        <p className="text-slate-400 mb-6 text-sm">Help us understand our voters better! Your answers are completely anonymous.</p>
+                        
+                        <div className="space-y-4 mb-8">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-300 mb-1">Where are you from?</label>
+                                <select 
+                                    value={region} 
+                                    onChange={(e) => setRegion(e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-primary"
+                                >
+                                    <option value="">Select Region</option>
+                                    <option value="Maharashtra">Maharashtra</option>
+                                    <option value="Delhi">Delhi</option>
+                                    <option value="Karnataka">Karnataka</option>
+                                    <option value="Tamil Nadu">Tamil Nadu</option>
+                                    <option value="Gujarat">Gujarat</option>
+                                    <option value="Uttar Pradesh">Uttar Pradesh</option>
+                                    <option value="Kerala">Kerala</option>
+                                    <option value="West Bengal">West Bengal</option>
+                                    <option value="Punjab">Punjab</option>
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium text-slate-300 mb-1">Why are you voting for this candidate?</label>
+                                <select 
+                                    value={reason} 
+                                    onChange={(e) => setReason(e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white focus:outline-none focus:border-primary"
+                                >
+                                    <option value="">Select Reason</option>
+                                    <option value="Policy Alignment">Policy Alignment</option>
+                                    <option value="Past Track Record">Past Track Record</option>
+                                    <option value="Campaign Promises">Campaign Promises</option>
+                                    <option value="Party Affiliation">Party Affiliation</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-4">
+                            <button 
+                                onClick={() => executeVote(false)}
+                                className="flex-1 py-3 px-4 bg-slate-700 hover:bg-slate-600 rounded-lg font-bold transition-colors"
+                            >
+                                Skip & Vote
+                            </button>
+                            <button 
+                                onClick={() => executeVote(true)}
+                                disabled={!region || !reason}
+                                className="flex-1 py-3 px-4 btn-primary rounded-lg font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Submit & Vote
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

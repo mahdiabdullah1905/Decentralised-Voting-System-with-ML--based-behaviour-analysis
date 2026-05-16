@@ -10,7 +10,7 @@ def load_or_train_model(X):
 
     model = IsolationForest(
         n_estimators=100,
-        contamination=0.1,
+        contamination='auto',
         random_state=42
     )
     model.fit(X)

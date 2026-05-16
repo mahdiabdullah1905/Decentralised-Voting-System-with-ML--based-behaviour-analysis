@@ -9,17 +9,20 @@ def extract_features(payload):
     vote_time = float(payload.get("voteTime", 0))
     # timestamp = payload.get("timestamp") # Removed: Time-series bias
     attempts = float(payload.get("attempts", 1))
+    
+    has_survey = float(payload.get("has_survey", 0.0))
 
     # Derived Feature: Voting Speed (How fast the user is acting)
     # Avoid division by zero
     voting_speed = 1.0 / (vote_time + 0.1)
 
     # Return raw features. Scaling will be handled by StandardScaler in the main pipeline.
-    # Features: [Time Taken, Number of Attempts, Voting Speed]
+    # Features: [Time Taken, Number of Attempts, Voting Speed, Has Survey]
     features = np.array([
         vote_time,
         attempts,
-        voting_speed
+        voting_speed,
+        has_survey
     ])
 
     return features.reshape(1, -1)

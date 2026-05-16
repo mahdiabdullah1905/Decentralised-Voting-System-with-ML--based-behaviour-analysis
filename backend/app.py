@@ -53,7 +53,11 @@ for _ in range(100):
     
     # Add slight random noise to derived speed to prevent perfect 1/x curve
     s = (1.0 / (t + 0.1)) + random.uniform(-0.01, 0.01)
-    base_data_list.append([t, a, max(0.01, s)])
+    
+    # 70% chance a normal voter fills the survey
+    hs = 1.0 if random.random() < 0.70 else 0.0
+    
+    base_data_list.append([t, a, max(0.01, s), hs])
 
 # 2. Anomalous Voters (Gaussian: Mean=0.5s, SD=0.5s | Attempts: 2-6 but rarely 1)
 # Increased overlap: Time 0.05 - 1s (Super fast bots)
@@ -68,7 +72,11 @@ for _ in range(25):
         a = float(random.randint(2, 6))
     
     s = (1.0 / (t + 0.1)) + random.uniform(-0.02, 0.02)
-    base_data_list.append([t, a, max(0.01, s)])
+    
+    # Bots almost never fill the survey (2% chance)
+    hs = 1.0 if random.random() < 0.02 else 0.0
+    
+    base_data_list.append([t, a, max(0.01, s), hs])
 
 BASE_DATA = np.array(base_data_list)
 
@@ -92,7 +100,7 @@ else:
     pca.fit(base_data_scaled)
     joblib.dump(pca, PCA_MODEL_PATH)
 
-anomaly_model = load_or_train_model(base_data_scaled)
+anomaly_model = load_or_train_model(base_data_scaled[:175])
 cluster_model = load_or_train_cluster(base_data_scaled)
 
 # Store analysis history
@@ -132,7 +140,11 @@ def analyze_data():
             "voting_speed": 1.0 / (float(data.get('voteTime', 1)) + 0.1), # Add derived feature to output
             "pca_1": float(p1),
             "pca_2": float(p2),
-            "wallet": data.get('wallet', 'unknown')
+            "wallet": data.get('wallet', 'unknown'),
+            "candidateId": data.get('candidateId'),
+            "region": data.get('region'),
+            "reason": data.get('reason'),
+            "has_survey": data.get('has_survey', False)
         }
         
         HISTORY.append(result)
@@ -147,6 +159,27 @@ def analyze_data():
 def get_history():
     print(f"Returning HISTORY of size: {len(HISTORY)}", file=sys.stderr)
     return jsonify(HISTORY)
+
+@app.route('/demographics', methods=['GET'])
+def get_demographics():
+    demo = {}
+    for h in HISTORY:
+        cid = str(h.get("candidateId"))
+        if not cid or cid == "None": continue
+        
+        # Only count valid votes that actually made it to the blockchain!
+        if h.get("is_anomaly"): continue
+            
+        if cid not in demo:
+            demo[cid] = {"regions": {}, "reasons": {}}
+        
+        region = h.get("region") or "Skipped Survey"
+        reason = h.get("reason") or "Skipped Survey"
+        
+        demo[cid]["regions"][region] = demo[cid]["regions"].get(region, 0) + 1
+        demo[cid]["reasons"][reason] = demo[cid]["reasons"].get(reason, 0) + 1
+            
+    return jsonify(demo)
 
 @app.route('/test_populate', methods=['GET'])
 def test_populate():

@@ -18,22 +18,10 @@ interface AnalysisLog {
 }
 
 const Admin: React.FC = () => {
-    const {
-        candidates,
-        addCandidate,
-        startElection,
-        endElection,
-        resetElection,
-        electionStarted,
-        electionEnded,
-        isAdmin,
-        isLoading,
-        account,
-        disconnectWallet
-    } = useVote();
+    const { account, isAdmin, candidates, electionStarted, electionEnded, addCandidate, startElection, endElection, resetElection, disconnectWallet, refreshData, adminSimulateVote, isLoading } = useVote();
 
     const [newCandidateName, setNewCandidateName] = useState('');
-    const [history, setHistory] = useState<AnalysisLog[]>([]);
+    const [history, setHistory] = useState<any[]>([]);
     const [centroids, setCentroids] = useState<any[]>([]);
     const [isSimulating, setIsSimulating] = useState(false);
 
@@ -90,44 +78,67 @@ const Admin: React.FC = () => {
         }
     };
 
-    const runSimulation = async () => {
+    const runSimulation = async (count: number, onChain: boolean) => {
         if (isSimulating) return;
         setIsSimulating(true);
-        let successCount = 0;
-        let failCount = 0;
+
+        const gaussianRandom = (mean: number, stdev: number) => {
+            const u = 1 - Math.random();
+            const v = Math.random();
+            const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+            return z * stdev + mean;
+        };
 
         try {
-            // Clear previous history first
-            await fetch('http://127.0.0.1:5000/clear', { method: 'POST' });
-            setHistory([]);
+            let successCount = 0;
+            let failCount = 0;
+            
+            if (candidates.length === 0) {
+                alert("Please add candidates before simulating votes!");
+                setIsSimulating(false);
+                return;
+            }
 
-            // Gaussian random helper
-            const gaussianRandom = (mean: number, stdev: number) => {
-                const u = 1 - Math.random();
-                const v = Math.random();
-                const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-                return z * stdev + mean;
-            };
+            const regions = ["Maharashtra", "Delhi", "Karnataka", "Tamil Nadu", "Gujarat", "Uttar Pradesh", "Kerala", "West Bengal", "Punjab"];
+            const reasons = ["Policy Alignment", "Past Track Record", "Campaign Promises", "Party Affiliation", "Other"];
 
-            for (let i = 0; i < 100; i++) {
+            // Clear previous history first if doing a large simulation
+            if (!onChain) {
+                await fetch('http://127.0.0.1:5000/clear', { method: 'POST' });
+                setHistory([]);
+            }
+
+            for (let i = 0; i < count; i++) {
                 // 70% Normal, 30% Anomaly for simulation
                 const isNormal = Math.random() > 0.3;
-                let voteTime, attempts;
+                let voteTime, attempts, has_survey, region, reason;
+                
+                // Pick a random candidate
+                const candidateId = candidates[Math.floor(Math.random() * candidates.length)].id;
 
                 if (isNormal) {
                     voteTime = Math.max(3, Math.min(25, gaussianRandom(12, 4)));
                     attempts = Math.random() < 0.85 ? 1 : 2;
+                    has_survey = Math.random() < 0.70 ? 1.0 : 0.0;
                 } else {
                     voteTime = Math.max(0.2, Math.min(4, gaussianRandom(1.5, 0.7)));
                     attempts = Math.floor(Math.random() * (6 - 2 + 1)) + 2;
+                    has_survey = Math.random() < 0.02 ? 1.0 : 0.0;
                 }
+                
+                region = has_survey ? regions[Math.floor(Math.random() * regions.length)] : null;
+                reason = has_survey ? reasons[Math.floor(Math.random() * reasons.length)] : null;
 
                 try {
                     const payload = {
                         wallet: `0xSimulated${Math.floor(Math.random() * 10000)}`,
+                        candidateId: candidateId,
                         voteTime: voteTime,
                         timestamp: Date.now(),
-                        attempts: attempts
+                        attempts: attempts,
+                        has_survey: has_survey,
+                        region: region,
+                        reason: reason
                     };
 
                     const res = await fetch('http://127.0.0.1:5000/analyze', {
@@ -136,19 +147,33 @@ const Admin: React.FC = () => {
                         body: JSON.stringify(payload)
                     });
 
-                    if (res.ok) successCount++;
-                    else failCount++;
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (!data.is_anomaly) {
+                            // Valid vote!
+                            if (onChain) {
+                                await adminSimulateVote(candidateId);
+                            }
+                            successCount++;
+                        } else {
+                            failCount++; // blocked
+                        }
+                    } else {
+                        failCount++;
+                    }
 
                 } catch (e) { failCount++; }
 
-                // update history every 5 requests
-                if (i % 5 === 0) await fetchHistory();
+                // update history every 10 requests to avoid spam
+                if (i % 10 === 0) await fetchHistory();
 
-                // Slow down loop
-                await new Promise(r => setTimeout(r, 50));
+                // Slow down loop slightly
+                await new Promise(r => setTimeout(r, 100));
             }
+
             await fetchHistory();
-            alert(`Simulation Done! Success: ${successCount}, Failed: ${failCount}`);
+            if (onChain) await refreshData(); // Refresh UI candidates vote count
+            alert(`Simulation Done! Valid ${onChain ? 'On-Chain' : 'Off-Chain'} Votes: ${successCount}, Blocked Bots: ${failCount}`);
         } catch (err) {
             console.error("Simulation error", err);
         } finally {
@@ -263,14 +288,29 @@ const Admin: React.FC = () => {
                         >
                             Clear Data
                         </button>
+                        <div className="flex gap-2">
                         <button
-                            onClick={runSimulation}
-                            disabled={isSimulating}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg flex items-center gap-2"
+                            onClick={() => runSimulation(5, true)}
+                            disabled={isSimulating || candidates.length === 0}
+                            className={`px-4 py-2 rounded font-bold flex items-center gap-2 ${
+                                isSimulating ? "bg-indigo-900 text-indigo-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-500 text-white"
+                            }`}
                         >
-                            {isSimulating ? <Loader className="animate-spin" /> : <Activity size={20} />}
-                            Simulate 100 Votes
+                            {isSimulating ? <Loader className="animate-spin w-5 h-5" /> : <Activity className="w-5 h-5" />}
+                            Simulate 5 Votes (On-Chain)
                         </button>
+                        
+                        <button
+                            onClick={() => runSimulation(100, false)}
+                            disabled={isSimulating || candidates.length === 0}
+                            className={`px-4 py-2 rounded font-bold flex items-center gap-2 ${
+                                isSimulating ? "bg-purple-900 text-purple-400 cursor-not-allowed" : "bg-purple-600 hover:bg-purple-500 text-white"
+                            }`}
+                        >
+                            {isSimulating ? <Loader className="animate-spin w-5 h-5" /> : <Activity className="w-5 h-5" />}
+                            Simulate 100 Votes (Off-Chain)
+                        </button>
+                    </div>
                     </div>
                 </div>
 

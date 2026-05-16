@@ -37,6 +37,7 @@ interface VoteContextType {
     endElection: () => Promise<void>;
     resetElection: () => Promise<void>;
     disconnectWallet: () => void;
+    adminSimulateVote: (candidateId: number) => Promise<void>;
 }
 
 const VoteContext = createContext<VoteContextType | undefined>(undefined);
@@ -94,7 +95,8 @@ export const VoteProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const initContract = async (_provider: BrowserProvider, _account: string) => {
         const signer = await _provider.getSigner();
-        const _contract = new ethers.Contract(CONTRACT_ADDRESS, VotingAbi, signer);
+        // Voting.json is the Hardhat artifact, so we pass VotingAbi.abi
+        const _contract = new ethers.Contract(CONTRACT_ADDRESS, VotingAbi.abi || VotingAbi, signer);
         setContract(_contract);
         await fetchData(_contract, _account);
     };
@@ -147,19 +149,26 @@ export const VoteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         try {
-            // Force Switch to Localhost
-            await _provider.send("wallet_addEthereumChain", [{
-                chainId: "0x7A69", // 31337
-                chainName: "Hardhat Localhost",
-                nativeCurrency: {
-                    name: "ETH",
-                    symbol: "ETH",
-                    decimals: 18
-                },
-                rpcUrls: ["http://127.0.0.1:8545"]
-            }]);
-
-            await _provider.send("wallet_switchEthereumChain", [{ chainId: "0x7A69" }]);
+            // Force Switch to Localhost using standard Web3 pattern
+            try {
+                await _provider.send("wallet_switchEthereumChain", [{ chainId: "0x7A69" }]);
+            } catch (switchError: any) {
+                // Error 4902 means the chain hasn't been added yet
+                if (switchError.code === 4902 || switchError?.info?.error?.code === 4902 || switchError?.error?.code === 4902) {
+                    await _provider.send("wallet_addEthereumChain", [{
+                        chainId: "0x7A69", // 31337
+                        chainName: "Hardhat Localhost",
+                        nativeCurrency: {
+                            name: "ETH",
+                            symbol: "ETH",
+                            decimals: 18
+                        },
+                        rpcUrls: ["http://127.0.0.1:8545"]
+                    }]);
+                } else {
+                    throw switchError;
+                }
+            }
 
             // eth_requestAccounts returns string[]
             const accounts = await _provider.send("eth_requestAccounts", []);
@@ -167,9 +176,9 @@ export const VoteProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setAccount(accounts[0]);
                 await initContract(_provider, accounts[0]);
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Connection failed", error);
-            alert("Failed to connect. Please ensure you are on Localhost:8545 (Chain ID 31337).");
+            alert(`Failed to connect. Error: ${error.message || JSON.stringify(error)}`);
         }
     };
 
@@ -264,11 +273,22 @@ export const VoteProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setHasVoted(false);
     };
 
+    const adminSimulateVote = async (candidateId: number) => {
+        if (!contract) return;
+        try {
+            const tx = await contract.adminSimulateVote(candidateId);
+            await tx.wait();
+            // Not calling refreshData here intentionally so we don't spam 100 requests during simulation loop
+        } catch (error: any) {
+            console.error("Error in adminSimulateVote:", error);
+        }
+    };
+
     return (
         <VoteContext.Provider value={{
             account, provider, contract, connectWallet,
             candidates, electionStarted, electionEnded, isAdmin, hasVoted, isLoading, isInitializing,
-            refreshData, castVote, addCandidate, startElection, endElection, resetElection, disconnectWallet
+            refreshData, castVote, addCandidate, startElection, endElection, resetElection, disconnectWallet, adminSimulateVote
         }}>
             {children}
         </VoteContext.Provider>

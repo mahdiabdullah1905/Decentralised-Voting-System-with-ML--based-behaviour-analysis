@@ -1,9 +1,19 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useVote } from '../contexts/VoteContext';
-import { Trophy, Users, BarChart } from 'lucide-react';
+import { Trophy, Users, BarChart, MapPin, Target } from 'lucide-react';
 
 const Results: React.FC = () => {
     const { candidates, electionEnded } = useVote();
+    const [demographics, setDemographics] = useState<any>(null);
+
+    useEffect(() => {
+        if (electionEnded) {
+            fetch('http://127.0.0.1:5000/demographics')
+                .then(res => res.json())
+                .then(data => setDemographics(data))
+                .catch(err => console.error("Error fetching demographics:", err));
+        }
+    }, [electionEnded]);
 
     if (!electionEnded) {
         return (
@@ -78,6 +88,39 @@ const Results: React.FC = () => {
                     <p className="text-emerald-400 text-lg">
                         <strong>{winners[0].name}</strong> won by a victory margin of <strong>{victoryMargin}</strong> vote{victoryMargin !== 1 ? 's' : ''}!
                     </p>
+                </div>
+            )}
+
+            {winners.length === 1 && totalVotes > 0 && demographics && demographics[winners[0].id] && (
+                <div className="bg-indigo-900/20 border border-indigo-500/30 p-6 rounded-2xl">
+                    <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-indigo-400">
+                        <MapPin className="w-5 h-5" /> 
+                        Winner Demographics Analysis
+                    </h3>
+                    <div className="grid md:grid-cols-2 gap-6">
+                        <div className="bg-slate-900/50 p-4 rounded-xl">
+                            <h4 className="text-sm text-slate-400 uppercase font-bold mb-3">Top Regions</h4>
+                            {Object.entries(demographics[winners[0].id].regions || {})
+                                .sort((a: any, b: any) => b[1] - a[1])
+                                .map(([region, count]: any) => (
+                                    <div key={region} className="flex justify-between items-center mb-2 text-sm border-b border-slate-700/50 pb-2 last:border-0">
+                                        <span>{region}</span>
+                                        <span className="font-mono bg-indigo-500/20 text-indigo-300 px-2 rounded">{count} votes</span>
+                                    </div>
+                                ))}
+                        </div>
+                        <div className="bg-slate-900/50 p-4 rounded-xl">
+                            <h4 className="text-sm text-slate-400 uppercase font-bold mb-3">Primary Reasons</h4>
+                            {Object.entries(demographics[winners[0].id].reasons || {})
+                                .sort((a: any, b: any) => b[1] - a[1])
+                                .map(([reason, count]: any) => (
+                                    <div key={reason} className="flex justify-between items-center mb-2 text-sm border-b border-slate-700/50 pb-2 last:border-0">
+                                        <span>{reason}</span>
+                                        <span className="font-mono bg-indigo-500/20 text-indigo-300 px-2 rounded">{count} votes</span>
+                                    </div>
+                                ))}
+                        </div>
+                    </div>
                 </div>
             )}
 
